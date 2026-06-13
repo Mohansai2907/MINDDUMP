@@ -30,7 +30,6 @@ def format_pass_rate(val):
     if val_str.endswith('%'):
         return val_str
     try:
-        # Check if float or int and format as percentage
         float_val = float(val_str.replace('%', ''))
         return f"{float_val}%"
     except ValueError:
@@ -57,7 +56,6 @@ def parse_report(filepath, is_security=False):
             break
     
     if ws_details is None:
-        # Fallback to look for case-insensitive substrings
         for candidate in details_candidates:
             matching = [s for s in sheet_names if candidate.lower() in s.lower()]
             if matching:
@@ -65,7 +63,6 @@ def parse_report(filepath, is_security=False):
                 break
                 
     if ws_details is None:
-        # Fallback to the first sheet that isn't summary
         non_summary_sheets = [s for s in sheet_names if 'summary' not in s.lower()]
         if non_summary_sheets:
             ws_details = wb[non_summary_sheets[0]]
@@ -86,14 +83,11 @@ def parse_report(filepath, is_security=False):
         rows = list(ws_summary.values)
         if rows:
             first_row = rows[0]
-            # Check if it is vertical key-value (like Metric, Value) or horizontal (headers in row 1, data in row 2)
             if len(first_row) == 2 and str(first_row[0]).lower() in ['metric', 'key'] and str(first_row[1]).lower() in ['value', 'val']:
-                # Vertical format
                 for r in rows[1:]:
                     if r and len(r) >= 2 and r[0] is not None:
                         summary_dict[str(r[0])] = r[1]
             else:
-                # Horizontal format
                 headers = [str(h) for h in rows[0]]
                 data = rows[1] if len(rows) > 1 else [None]*len(headers)
                 summary_dict = dict(zip(headers, data))
@@ -101,7 +95,6 @@ def parse_report(filepath, is_security=False):
         # Auto-generate summary from details if missing
         total_tests = len(details)
         if is_security:
-            # Count by severity
             critical = sum(1 for d in details if str(get_detail_val(d, 'Severity')).lower() == 'critical')
             high = sum(1 for d in details if str(get_detail_val(d, 'Severity')).lower() == 'high')
             medium = sum(1 for d in details if str(get_detail_val(d, 'Severity')).lower() == 'medium')
@@ -124,7 +117,6 @@ def parse_report(filepath, is_security=False):
                 'Low': low
             }
         else:
-            # Check status column
             passed = 0
             failed = 0
             for d in details:
@@ -153,41 +145,51 @@ def main():
         sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
     tests_dir = os.path.dirname(os.path.abspath(__file__))
-    
-    # Locate files in tests/reports/
     reports_dir = os.path.join(tests_dir, "reports")
+    
     e2e_file = None
+    appium_file = None
     sec_file = None
     
     if os.path.exists(reports_dir):
-        for f in os.listdir(reports_dir):
+        for f in sorted(os.listdir(reports_dir)):
             if f.startswith("E2E_Test_Report_Glowtics_") and f.endswith(".xlsx"):
                 e2e_file = f
+            elif f.startswith("Appium_Test_Report_Glowtics_") and f.endswith(".xlsx"):
+                appium_file = f
             elif f.startswith("Vulnerability_Test_Report_Glowtics_") and f.endswith(".xlsx"):
                 sec_file = f
                 
-    # Fallbacks if files with specific names aren't found
+    # Fallback paths
     e2e_path = os.path.join(reports_dir, e2e_file if e2e_file else "E2E_Test_Report_Glowtics_2026-06-11T07-22-21.xlsx")
+    appium_path = os.path.join(reports_dir, appium_file if appium_file else "Appium_Test_Report_Glowtics_2026-06-11T08-30-00.xlsx")
     sec_path = os.path.join(reports_dir, sec_file if sec_file else "Vulnerability_Test_Report_Glowtics_2026-06-12T05-45-33.xlsx")
     
-    if not os.path.exists(e2e_path) or not os.path.exists(sec_path):
-        print(f"Error: Required test reports not found in {reports_dir}")
-        print(f"E2E report path: {e2e_path} (Exists: {os.path.exists(e2e_path)})")
-        print(f"Security report path: {sec_path} (Exists: {os.path.exists(sec_path)})")
+    # Check if files exist
+    files_missing = []
+    if not os.path.exists(e2e_path): files_missing.append(f"E2E report (expected: {e2e_path})")
+    if not os.path.exists(appium_path): files_missing.append(f"Appium report (expected: {appium_path})")
+    if not os.path.exists(sec_path): files_missing.append(f"Security report (expected: {sec_path})")
+    
+    if files_missing:
+        print("Error: Missing report files:")
+        for m in files_missing:
+            print(f" - {m}")
         sys.exit(1)
         
     e2e_summary, e2e_details = parse_report(e2e_path, is_security=False)
+    appium_summary, appium_details = parse_report(appium_path, is_security=False)
     sec_summary, sec_details = parse_report(sec_path, is_security=True)
     
     markdown_output = []
     markdown_output.append("# 🧪 Glowtics Automated Test Verification Dashboard\n")
     markdown_output.append("This dashboard displays the test results verified from the completed test execution reports.\n")
     
-    # E2E Test Suite Summary
-    markdown_output.append("## 🌿 E2E Test Suite Summary")
+    # 1. E2E Test Suite Summary
+    markdown_output.append("## 🌿 E2E Web Test Suite Summary")
     markdown_output.append("| Metric | Value |")
     markdown_output.append("|---|---|")
-    markdown_output.append(f"| **Test Suite** | {get_summary_val(e2e_summary, ['Test Suite'], 'Glowtics E2E Tests')} |")
+    markdown_output.append(f"| **Test Suite** | {get_summary_val(e2e_summary, ['Test Suite'], 'Glowtics E2E Web Tests')} |")
     markdown_output.append(f"| **Total Test Cases** | {get_summary_val(e2e_summary, ['Total Tests', 'Total Test Cases'])} |")
     markdown_output.append(f"| **Passed** | ✅ {get_summary_val(e2e_summary, ['Passed', 'Total PASS'])} |")
     markdown_output.append(f"| **Failed** | ❌ {get_summary_val(e2e_summary, ['Failed', 'Total FAIL'])} |")
@@ -196,14 +198,29 @@ def main():
     markdown_output.append(f"| **Timestamp** | {get_summary_val(e2e_summary, ['End Time', 'Execution Date'])} |")
     markdown_output.append("\n")
     
-    # Security Vulnerability Summary
+    # 2. Appium Mobile Test Suite Summary
+    markdown_output.append("## 📱 Appium Mobile Test Suite Summary")
+    markdown_output.append("| Metric | Value |")
+    markdown_output.append("|---|---|")
+    markdown_output.append(f"| **Device Tested** | 📱 {get_summary_val(appium_summary, ['Device Tested'], 'N/A')} |")
+    markdown_output.append(f"| **Android Version** | {get_summary_val(appium_summary, ['Android Version'], 'N/A')} |")
+    markdown_output.append(f"| **App Version** | {get_summary_val(appium_summary, ['App Version'], 'N/A')} |")
+    markdown_output.append(f"| **Total Test Cases** | {get_summary_val(appium_summary, ['Total Test Cases', 'Total Tests', 'Total Test Cases'])} |")
+    markdown_output.append(f"| **Passed** | ✅ {get_summary_val(appium_summary, ['Passed', 'Total PASS'])} |")
+    markdown_output.append(f"| **Failed** | ❌ {get_summary_val(appium_summary, ['Failed', 'Total FAIL'])} |")
+    markdown_output.append(f"| **Pass Rate** | **{format_pass_rate(get_summary_val(appium_summary, ['Pass Percentage', 'Pass Rate %', 'Pass Rate']))}** |")
+    markdown_output.append(f"| **Duration** | {get_summary_val(appium_summary, ['Execution Time', 'Duration (sec)'])} |")
+    markdown_output.append(f"| **Timestamp** | {get_summary_val(appium_summary, ['Execution Date', 'End Time'])} |")
+    markdown_output.append("\n")
+    
+    # 3. Security Vulnerability Summary
     markdown_output.append("## 🛡️ Backend Security Verification Summary")
     markdown_output.append("| Metric | Value |")
     markdown_output.append("|---|---|")
     markdown_output.append(f"| **Test Suite** | {get_summary_val(sec_summary, ['Test Suite'], 'Backend Security Verification')} |")
     markdown_output.append(f"| **Total Findings** | {get_summary_val(sec_summary, ['Total Tests', 'Total Test Cases'])} |")
     
-    # If we have severity counts, show them
+    # Check for severity counts
     critical = get_summary_val(sec_summary, 'Critical', None)
     if critical is not None:
         markdown_output.append(f"| **Critical Severity 🚨** | {critical} |")
@@ -219,9 +236,9 @@ def main():
     markdown_output.append(f"| **Timestamp** | {get_summary_val(sec_summary, ['End Time', 'Execution Date'])} |")
     markdown_output.append("\n")
     
-    # E2E Details Expandable Section
-    markdown_output.append("### 📋 E2E Test Cases Detail Breakdowns")
-    markdown_output.append(f"<details><summary>Click to view all E2E Test Cases ({len(e2e_details)} tests)</summary>\n")
+    # Expandable Details: E2E
+    markdown_output.append("### 📋 E2E Web Test Cases Detail Breakdowns")
+    markdown_output.append(f"<details><summary>Click to view all E2E Web Test Cases ({len(e2e_details)} tests)</summary>\n")
     markdown_output.append("| No. | Category | Test Name | Status |")
     markdown_output.append("|---|---|---|---|")
     for r in e2e_details:
@@ -233,11 +250,25 @@ def main():
         markdown_output.append(f"| {no} | {category} | `{test_name}` | {status_emoji} |")
     markdown_output.append("\n</details>\n")
     
-    # Security Details Expandable Section
+    # Expandable Details: Appium
+    markdown_output.append("### 📱 Appium Mobile Test Cases Detail Breakdowns")
+    markdown_output.append(f"<details><summary>Click to view all Appium Mobile Test Cases ({len(appium_details)} tests)</summary>\n")
+    markdown_output.append("| ID | Module | Test Case | Status | Remarks |")
+    markdown_output.append("|---|---|---|---|---|")
+    for r in appium_details:
+        no = get_detail_val(r, ['Test Case ID', 'No.', '#'])
+        category = get_detail_val(r, ['Module', 'Category'])
+        test_name = get_detail_val(r, ['Test Case', 'Test Name', 'Test Case Name'])
+        status = str(get_detail_val(r, ['Status', 'Result'])).upper()
+        status_emoji = "✅ PASSED" if "PASS" in status or status == "OK" else "❌ FAILED"
+        remarks = get_detail_val(r, ['Remarks', 'Remarks / Error', 'Error Log'], '-')
+        markdown_output.append(f"| {no} | {category} | `{test_name}` | {status_emoji} | {remarks} |")
+    markdown_output.append("\n</details>\n")
+    
+    # Expandable Details: Security
     markdown_output.append("### 🔐 Security Test Cases Detail Breakdowns")
     markdown_output.append(f"<details><summary>Click to view all Security Findings ({len(sec_details)} items)</summary>\n")
     
-    # Detect layout of security details
     if sec_details and 'Severity' in sec_details[0]:
         markdown_output.append("| No. | Severity | Vulnerability Type | File Path | Brief Explanation |")
         markdown_output.append("|---|---|---|---|---|")
