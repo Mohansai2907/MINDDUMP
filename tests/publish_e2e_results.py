@@ -35,11 +35,10 @@ def format_pass_rate(val):
     except ValueError:
         return val_str
 
-def parse_report(filepath, is_security=False):
+def parse_report(filepath):
     wb = openpyxl.load_workbook(filepath, data_only=True)
     sheet_names = wb.sheetnames
     
-    # Identify Summary Sheet
     summary_dict = {}
     ws_summary = None
     if 'Summary' in sheet_names:
@@ -47,14 +46,13 @@ def parse_report(filepath, is_security=False):
     elif 'summary' in [s.lower() for s in sheet_names]:
         ws_summary = wb[next(s for s in sheet_names if s.lower() == 'summary')]
         
-    # Identify Details Sheet
     ws_details = None
-    details_candidates = ['Test Details', 'Test Cases', 'Vulnerabilities', 'test details', 'test cases', 'vulnerabilities']
+    details_candidates = ['Test Details', 'Test Cases', 'test details', 'test cases']
     for candidate in details_candidates:
         if candidate in sheet_names:
             ws_details = wb[candidate]
             break
-    
+            
     if ws_details is None:
         for candidate in details_candidates:
             matching = [s for s in sheet_names if candidate.lower() in s.lower()]
@@ -69,7 +67,6 @@ def parse_report(filepath, is_security=False):
         else:
             ws_details = wb[sheet_names[0]]
             
-    # Parse Details
     detail_rows = list(ws_details.values)
     details = []
     if detail_rows:
@@ -78,7 +75,6 @@ def parse_report(filepath, is_security=False):
             if r and r[0] is not None:
                 details.append(dict(zip(detail_headers, r)))
                 
-    # Parse Summary
     if ws_summary is not None:
         rows = list(ws_summary.values)
         if rows:
@@ -92,50 +88,26 @@ def parse_report(filepath, is_security=False):
                 data = rows[1] if len(rows) > 1 else [None]*len(headers)
                 summary_dict = dict(zip(headers, data))
     else:
-        # Auto-generate summary from details if missing
         total_tests = len(details)
-        if is_security:
-            critical = sum(1 for d in details if str(get_detail_val(d, 'Severity')).lower() == 'critical')
-            high = sum(1 for d in details if str(get_detail_val(d, 'Severity')).lower() == 'high')
-            medium = sum(1 for d in details if str(get_detail_val(d, 'Severity')).lower() == 'medium')
-            low = sum(1 for d in details if str(get_detail_val(d, 'Severity')).lower() == 'low')
-            failed = critical + high
-            passed = total_tests - failed
-            pass_rate = (passed / total_tests * 100) if total_tests > 0 else 100.0
-            
-            summary_dict = {
-                'Test Suite': 'Backend Security Verification',
-                'Total Tests': total_tests,
-                'Passed': passed,
-                'Failed': failed,
-                'Pass Rate %': f"{pass_rate:.1f}%",
-                'Duration (sec)': 'N/A',
-                'End Time': 'N/A',
-                'Critical': critical,
-                'High': high,
-                'Medium': medium,
-                'Low': low
-            }
-        else:
-            passed = 0
-            failed = 0
-            for d in details:
-                st = str(get_detail_val(d, ['Status', 'Result'])).lower()
-                if 'pass' in st or st == 'ok' or st == 'true':
-                    passed += 1
-                else:
-                    failed += 1
-            pass_rate = (passed / total_tests * 100) if total_tests > 0 else 100.0
-            
-            summary_dict = {
-                'Test Suite': 'E2E Test Suite',
-                'Total Tests': total_tests,
-                'Passed': passed,
-                'Failed': failed,
-                'Pass Rate %': f"{pass_rate:.1f}%",
-                'Duration (sec)': 'N/A',
-                'End Time': 'N/A'
-            }
+        passed = 0
+        failed = 0
+        for d in details:
+            st = str(get_detail_val(d, ['Status', 'Result'])).lower()
+            if 'pass' in st or st == 'ok' or st == 'true':
+                passed += 1
+            else:
+                failed += 1
+        pass_rate = (passed / total_tests * 100) if total_tests > 0 else 100.0
+        
+        summary_dict = {
+            'Test Suite': 'E2E Test Suite',
+            'Total Tests': total_tests,
+            'Passed': passed,
+            'Failed': failed,
+            'Pass Rate %': f"{pass_rate:.1f}%",
+            'Duration (sec)': 'N/A',
+            'End Time': 'N/A'
+        }
             
     return summary_dict, details
 
@@ -149,7 +121,6 @@ def main():
     
     e2e_file = None
     appium_file = None
-    sec_file = None
     
     if os.path.exists(reports_dir):
         for f in sorted(os.listdir(reports_dir)):
@@ -157,19 +128,13 @@ def main():
                 e2e_file = f
             elif f.startswith("Appium_Test_Report_Glowtics_") and f.endswith(".xlsx"):
                 appium_file = f
-            elif f.startswith("Vulnerability_Test_Report_Glowtics_") and f.endswith(".xlsx"):
-                sec_file = f
                 
-    # Fallback paths
     e2e_path = os.path.join(reports_dir, e2e_file if e2e_file else "E2E_Test_Report_Glowtics_2026-06-11T07-22-21.xlsx")
     appium_path = os.path.join(reports_dir, appium_file if appium_file else "Appium_Test_Report_Glowtics_2026-06-11T08-30-00.xlsx")
-    sec_path = os.path.join(reports_dir, sec_file if sec_file else "Vulnerability_Test_Report_Glowtics_2026-06-12T05-45-33.xlsx")
     
-    # Check if files exist
     files_missing = []
     if not os.path.exists(e2e_path): files_missing.append(f"E2E report (expected: {e2e_path})")
     if not os.path.exists(appium_path): files_missing.append(f"Appium report (expected: {appium_path})")
-    if not os.path.exists(sec_path): files_missing.append(f"Security report (expected: {sec_path})")
     
     if files_missing:
         print("Error: Missing report files:")
@@ -177,13 +142,12 @@ def main():
             print(f" - {m}")
         sys.exit(1)
         
-    e2e_summary, e2e_details = parse_report(e2e_path, is_security=False)
-    appium_summary, appium_details = parse_report(appium_path, is_security=False)
-    sec_summary, sec_details = parse_report(sec_path, is_security=True)
+    e2e_summary, e2e_details = parse_report(e2e_path)
+    appium_summary, appium_details = parse_report(appium_path)
     
     markdown_output = []
-    markdown_output.append("# 🧪 Glowtics Automated Test Verification Dashboard\n")
-    markdown_output.append("This dashboard displays the test results verified from the completed test execution reports.\n")
+    markdown_output.append("# 🧪 Glowtics Automated E2E & Mobile Test Dashboard\n")
+    markdown_output.append("This dashboard displays the test results verified from the completed E2E web and Appium mobile test execution reports.\n")
     
     # 1. E2E Test Suite Summary
     markdown_output.append("## 🌿 E2E Web Test Suite Summary")
@@ -211,29 +175,6 @@ def main():
     markdown_output.append(f"| **Pass Rate** | **{format_pass_rate(get_summary_val(appium_summary, ['Pass Percentage', 'Pass Rate %', 'Pass Rate']))}** |")
     markdown_output.append(f"| **Duration** | {get_summary_val(appium_summary, ['Execution Time', 'Duration (sec)'])} |")
     markdown_output.append(f"| **Timestamp** | {get_summary_val(appium_summary, ['Execution Date', 'End Time'])} |")
-    markdown_output.append("\n")
-    
-    # 3. Security Vulnerability Summary
-    markdown_output.append("## 🛡️ Backend Security Verification Summary")
-    markdown_output.append("| Metric | Value |")
-    markdown_output.append("|---|---|")
-    markdown_output.append(f"| **Test Suite** | {get_summary_val(sec_summary, ['Test Suite'], 'Backend Security Verification')} |")
-    markdown_output.append(f"| **Total Findings** | {get_summary_val(sec_summary, ['Total Tests', 'Total Test Cases'])} |")
-    
-    # Check for severity counts
-    critical = get_summary_val(sec_summary, 'Critical', None)
-    if critical is not None:
-        markdown_output.append(f"| **Critical Severity 🚨** | {critical} |")
-        markdown_output.append(f"| **High Severity 🟠** | {get_summary_val(sec_summary, 'High')} |")
-        markdown_output.append(f"| **Medium Severity 🟡** | {get_summary_val(sec_summary, 'Medium')} |")
-        markdown_output.append(f"| **Low Severity 🟢** | {get_summary_val(sec_summary, 'Low')} |")
-    else:
-        markdown_output.append(f"| **Passed** | ✅ {get_summary_val(sec_summary, ['Passed', 'Total PASS'])} |")
-        markdown_output.append(f"| **Failed** | ❌ {get_summary_val(sec_summary, ['Failed', 'Total FAIL'])} |")
-        markdown_output.append(f"| **Pass Rate** | **{format_pass_rate(get_summary_val(sec_summary, ['Pass Rate %', 'Pass Percentage']))}** |")
-        
-    markdown_output.append(f"| **Duration** | {get_summary_val(sec_summary, ['Duration (sec)', 'Execution Time'])} |")
-    markdown_output.append(f"| **Timestamp** | {get_summary_val(sec_summary, ['End Time', 'Execution Date'])} |")
     markdown_output.append("\n")
     
     # Expandable Details: E2E
@@ -265,44 +206,16 @@ def main():
         markdown_output.append(f"| {no} | {category} | `{test_name}` | {status_emoji} | {remarks} |")
     markdown_output.append("\n</details>\n")
     
-    # Expandable Details: Security
-    markdown_output.append("### 🔐 Security Test Cases Detail Breakdowns")
-    markdown_output.append(f"<details><summary>Click to view all Security Findings ({len(sec_details)} items)</summary>\n")
-    
-    if sec_details and 'Severity' in sec_details[0]:
-        markdown_output.append("| No. | Severity | Vulnerability Type | File Path | Brief Explanation |")
-        markdown_output.append("|---|---|---|---|---|")
-        for idx, r in enumerate(sec_details, 1):
-            severity = str(get_detail_val(r, 'Severity'))
-            sev_emoji = f"🚨 {severity}" if severity.lower() == 'critical' else (f"🟠 {severity}" if severity.lower() == 'high' else (f"🟡 {severity}" if severity.lower() == 'medium' else f"🟢 {severity}"))
-            vuln_type = get_detail_val(r, 'Vulnerability Type')
-            file_path = get_detail_val(r, 'File Path')
-            explanation = get_detail_val(r, 'Brief Explanation')
-            markdown_output.append(f"| {idx} | {sev_emoji} | {vuln_type} | `{file_path}` | {explanation} |")
-    else:
-        markdown_output.append("| No. | Category | Test Name | Status |")
-        markdown_output.append("|---|---|---|---|")
-        for r in sec_details:
-            no = get_detail_val(r, ['No.', '#', 'Test Case ID'])
-            category = get_detail_val(r, ['Category', 'Module'])
-            test_name = get_detail_val(r, ['Test Name', 'Test Case'])
-            status = str(get_detail_val(r, ['Status', 'Result'])).upper()
-            status_emoji = "✅ PASSED" if "PASS" in status or status == "OK" else "❌ FAILED"
-            markdown_output.append(f"| {no} | {category} | `{test_name}` | {status_emoji} |")
-            
-    markdown_output.append("\n</details>\n")
-    
     markdown_output.append("## 📦 Downloadable Test Report Artifacts")
-    markdown_output.append("The full Excel spreadsheets (`.xlsx`) containing detailed worksheets (passed tests, failed tests, execution logs, and tracebacks) are uploaded as artifacts for this workflow run and can be downloaded from the **Artifacts** section at the top of the page.")
+    markdown_output.append("The full Excel spreadsheets (`.xlsx`) containing detailed worksheets are uploaded as artifacts for this workflow run and can be downloaded from the **Artifacts** section at the top of the page.")
     
     full_markdown = "\n".join(markdown_output)
     
-    # Write to GITHUB_STEP_SUMMARY
     summary_file = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary_file:
         with open(summary_file, "w", encoding="utf-8") as f:
             f.write(full_markdown)
-        print("Successfully published test results to GitHub Step Summary!")
+        print("Successfully published E2E results to GitHub Step Summary!")
     else:
         print(full_markdown)
 

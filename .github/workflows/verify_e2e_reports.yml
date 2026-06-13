@@ -1,4 +1,4 @@
-name: Glowtics E2E & Backend Security Test Verification
+name: Glowtics E2E & Mobile Test Verification
 
 on:
   push:
@@ -9,7 +9,7 @@ on:
 
 jobs:
   verify:
-    name: Verify Test Reports
+    name: Verify E2E Reports
     runs-on: ubuntu-latest
 
     steps:
@@ -28,7 +28,7 @@ jobs:
 
       - name: Publish Test Results to Job Summary
         run: |
-          python tests/publish_results.py
+          python tests/publish_e2e_results.py
 
       - name: Upload E2E Test Report
         uses: actions/upload-artifact@v4
@@ -42,11 +42,4 @@ jobs:
         with:
           name: Appium-Test-Report
           path: tests/reports/Appium_Test_Report_Glowtics_*.xlsx
-          if-no-files-found: error
-
-      - name: Upload Security Vulnerabilities Report
-        uses: actions/upload-artifact@v4
-        with:
-          name: Security-Vulnerabilities-Report
-          path: tests/reports/Vulnerability_Test_Report_Glowtics_*.xlsx
           if-no-files-found: error
